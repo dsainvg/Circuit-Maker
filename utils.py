@@ -1,4 +1,6 @@
 # Logic gate implementations and truth table generation utilities
+import itertools
+from collections import defaultdict
 
 def NOT(a):
     return 1 ^ (a)
@@ -150,6 +152,231 @@ def import_gates_from_file(filename):
     return gates_list
 
 
+def analyze_and_filter_inputs(input_data, target_outputs, log_file=None):
+    """
+    Analyze input data and remove redundant/useless inputs before search.
+    
+    Returns:
+        Tuple of (filtered_inputs, removed_info)
+    """
+    filtered = {}
+    removed = {
+        'constant': [],      # Inputs with all same value
+        'duplicates': [],    # Inputs identical to others
+        'exact_match': {}    # Inputs that exactly match outputs
+    }
+    
+    # Check each input
+    for inp_name, inp_bits in input_data.items():
+        # Check if constant (all 0s or all 1s)
+        unique_values = set(inp_bits)
+        if len(unique_values) == 1:
+            removed['constant'].append((inp_name, list(unique_values)[0]))
+            if log_file:
+                log_file.write(f"  Removing {inp_name}: constant value {list(unique_values)[0]}\n")
+            continue
+        
+        # Check if duplicate of an already-kept input
+        is_duplicate = False
+        for kept_name, kept_bits in filtered.items():
+            if inp_bits == kept_bits:
+                removed['duplicates'].append((inp_name, kept_name))
+                if log_file:
+                    log_file.write(f"  Removing {inp_name}: duplicate of {kept_name}\n")
+                is_duplicate = True
+                break
+        
+        if is_duplicate:
+            continue
+        
+        # Check if it exactly matches any output (still keep it, but note it)
+        for out_name, out_bits in target_outputs.items():
+            if inp_bits == out_bits:
+                removed['exact_match'][out_name] = inp_name
+                if log_file:
+                    log_file.write(f"  Note: {inp_name} exactly matches output {out_name}\n")
+        
+        # Keep this input
+        filtered[inp_name] = inp_bits
+    
+    if log_file and (removed['constant'] or removed['duplicates']):
+        log_file.write(f"\n  Reduced inputs: {len(input_data)} -> {len(filtered)}\n")
+    
+    return filtered, removed
+
+
+def analyze_gate_characteristics(gates_list):
+    """
+    Analyze available gates and categorize them by functionality.
+    This helps prioritize gate selection during search.
+    
+    Returns:
+        Dictionary with gate categories and metadata
+    """
+    categories = {
+        'inverting': [],      # NOT, NAND, NOR, XNOR
+        'and_like': [],       # AND, NAND
+        'or_like': [],        # OR, NOR
+        'xor_like': [],       # XOR, XNOR
+        'by_input_count': defaultdict(list),  # Grouped by number of inputs
+        'by_complexity': defaultdict(list),   # Grouped by complexity
+        'min_complexity': {},  # Minimum complexity for each gate type
+    }
+    
+    for gate in gates_list:
+        name = gate['name']
+        inputs = gate['inputs']
+        complexity = gate.get('complexity', 1)
+        
+        # Categorize by functionality
+        if 'NOT' in name or 'NAND' in name or 'NOR' in name or 'XNOR' in name:
+            categories['inverting'].append(gate)
+        
+        if 'AND' in name:
+            categories['and_like'].append(gate)
+        
+        if 'OR' in name:
+            categories['or_like'].append(gate)
+        
+        if 'XOR' in name:
+            categories['xor_like'].append(gate)
+        
+        # Group by input count
+        categories['by_input_count'][inputs].append(gate)
+        
+        # Group by complexity
+        categories['by_complexity'][complexity].append(gate)
+        
+        # Track minimum complexity for each type
+        gate_type = name.rstrip('234')  # Remove number suffix
+        if gate_type not in categories['min_complexity']:
+            categories['min_complexity'][gate_type] = complexity
+        else:
+            categories['min_complexity'][gate_type] = min(
+                categories['min_complexity'][gate_type], complexity
+            )
+    
+    return categories
+
+
+def should_try_gate_combination(gate, combo, target_bits, current_signals, gate_categories):
+    """
+    Intelligent filtering using HARD LOGIC RULES ONLY - no assumptions.
+    Returns True if this gate+combination is worth trying.
+    
+    Logic-based redundancy elimination:
+    1. Redundant gate usage (AND3(A,A,B) = AND2(A,B) if AND2 exists)
+    2. XOR with same inputs always = 0
+    3. Logically equivalent patterns
+    """
+    gate_name = gate['name']
+    num_inputs = gate['inputs']
+    
+    # Count unique inputs
+    input_counts = {}
+    for node in combo:
+        node_id = id(node)
+        input_counts[node_id] = input_counts.get(node_id, 0) + 1
+    
+    unique_input_ids = len(input_counts)
+    max_repetition = max(input_counts.values()) if input_counts else 0
+    
+    # HARD RULE 1: XOR with identical inputs = 0 (always)
+    if 'XOR' in gate_name:
+        if unique_input_ids == 1:  # XOR(A, A) = 0
+            return False
+    
+    # HARD RULE 2: If smaller gate exists, don't use redundant larger gate
+    # AND3(A, A, B) = AND2(A, B) if AND2 is available
+    # AND4(A, A, A, B) = AND2(A, B) if AND2 is available
+    has_and2 = any(g['name'] == 'AND2' for g in gate_categories['and_like'])
+    has_or2 = any(g['name'] == 'OR2' for g in gate_categories['or_like'])
+    has_and3 = any(g['name'] == 'AND3' for g in gate_categories['and_like'])
+    has_or3 = any(g['name'] == 'OR3' for g in gate_categories['or_like'])
+    
+    if gate_name == 'AND3' and has_and2:
+        # If 2 inputs are the same, AND3(A,A,B) = AND2(A,B)
+        if max_repetition >= 2:
+            return False
+    
+    if gate_name == 'AND4' and has_and2:
+        # If 3+ inputs are the same, AND4(A,A,A,B) = AND2(A,B)
+        if max_repetition >= 3:
+            return False
+        # If 2 pairs of same inputs, AND4(A,A,B,B) = AND2(AND2(A,A), AND2(B,B)) = AND2(A,B)
+        if unique_input_ids == 2 and max_repetition == 2:
+            return False
+    
+    if gate_name == 'AND4' and has_and3:
+        # If 2 inputs are the same, AND4(A,A,B,C) = AND3(A,B,C)
+        if max_repetition >= 2:
+            return False
+    
+    if gate_name == 'OR3' and has_or2:
+        # If 2 inputs are the same, OR3(A,A,B) = OR2(A,B)
+        if max_repetition >= 2:
+            return False
+    
+    if gate_name == 'OR4' and has_or2:
+        # If 3+ inputs are the same, OR4(A,A,A,B) = OR2(A,B)
+        if max_repetition >= 3:
+            return False
+        # If 2 pairs of same inputs, OR4(A,A,B,B) = OR2(A,B)
+        if unique_input_ids == 2 and max_repetition == 2:
+            return False
+    
+    if gate_name == 'OR4' and has_or3:
+        # If 2 inputs are the same, OR4(A,A,B,C) = OR3(A,B,C)
+        if max_repetition >= 2:
+            return False
+    
+    # HARD RULE 3: NAND3 and NOR3 follow same logic
+    has_nand2 = any(g['name'] == 'NAND2' for g in gate_categories['and_like'])
+    has_nor2 = any(g['name'] == 'NOR2' for g in gate_categories['or_like'])
+    has_nand3 = any(g['name'] == 'NAND3' for g in gate_categories['and_like'])
+    has_nor3 = any(g['name'] == 'NOR3' for g in gate_categories['or_like'])
+    
+    if gate_name == 'NAND3' and has_nand2:
+        if max_repetition >= 2:
+            return False
+    
+    if gate_name == 'NAND4' and has_nand2:
+        if max_repetition >= 3 or (unique_input_ids == 2 and max_repetition == 2):
+            return False
+    
+    if gate_name == 'NAND4' and has_nand3:
+        if max_repetition >= 2:
+            return False
+    
+    if gate_name == 'NOR3' and has_nor2:
+        if max_repetition >= 2:
+            return False
+    
+    if gate_name == 'NOR4' and has_nor2:
+        if max_repetition >= 3 or (unique_input_ids == 2 and max_repetition == 2):
+            return False
+    
+    if gate_name == 'NOR4' and has_nor3:
+        if max_repetition >= 2:
+            return False
+    
+    # HARD RULE 4: All-identical inputs for certain gates
+    if unique_input_ids == 1:
+        # AND(A,A,...,A) = A
+        # OR(A,A,...,A) = A  
+        # These just pass through, redundant with existing signal
+        if gate_name in ['AND2', 'AND3', 'AND4', 'OR2', 'OR3', 'OR4']:
+            return False
+        
+        # NAND(A,A,...,A) = NOT(A), NOR(A,A,...,A) = NOT(A)
+        # If we have NOT gate, don't use NAND/NOR with identical inputs
+        has_not = any(g['name'] == 'NOT' for g in gate_categories['inverting'])
+        if has_not and gate_name in ['NAND2', 'NAND3', 'NAND4', 'NOR2', 'NOR3', 'NOR4']:
+            return False
+    
+    return True
+
+
 # Truth table generator
 def generate_truth_table(gate_func, inputs_dict):
     """
@@ -262,6 +489,7 @@ class CircuitNode:
 def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10, log_file=None):
     """
     Search for circuit using tree structure with complexity-based depth.
+    Uses intelligent pruning rules to reduce search space.
     
     Args:
         input_data: Dictionary of input signals {name: [bits]}
@@ -273,21 +501,42 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
     Returns:
         String expression of solution circuit or None
     """
-    import itertools
+    # Analyze and filter input data
+    if log_file:
+        log_file.write("\n=== INPUT DATA ANALYSIS ===\n")
     
-    # Global signal pool - ALL signals available
-    all_signals = {name: CircuitNode(name, bits, complexity=0) for name, bits in input_data.items()}
-    checked = set(tuple(bits) for bits in input_data.values())
+    target_outputs = {'output': target_output}
+    filtered_inputs, removed_info = analyze_and_filter_inputs(input_data, target_outputs, log_file)
+    
+    # Check if output already exists in removed exact matches
+    if 'output' in removed_info['exact_match']:
+        matched_input = removed_info['exact_match']['output']
+        if log_file:
+            log_file.write(f"\n*** SOLUTION FOUND (Complexity 0) ***\n")
+            log_file.write(f"Expression: {matched_input}\n")
+            log_file.write(f"Complexity: 0\n")
+        return f"{matched_input} [complexity=0]"
+    
+    if log_file:
+        log_file.write("================================\n")
+    
+    # Analyze gates for pruning rules
+    gate_categories = analyze_gate_characteristics(gates_list)
+    
+    if log_file:
+        log_file.write("\n=== INTELLIGENT PRUNING ENABLED ===\n")
+        log_file.write(f"Available gates: {len(gates_list)}\n")
+        log_file.write(f"Inverting gates: {[g['name'] for g in gate_categories['inverting']]}\n")
+        log_file.write(f"AND-like gates: {[g['name'] for g in gate_categories['and_like']]}\n")
+        log_file.write(f"OR-like gates: {[g['name'] for g in gate_categories['or_like']]}\n")
+        log_file.write(f"XOR-like gates: {[g['name'] for g in gate_categories['xor_like']]}\n")
+        log_file.write("================================\n")
+    
+    # Global signal pool - use filtered inputs
+    all_signals = {name: CircuitNode(name, bits, complexity=0) for name, bits in filtered_inputs.items()}
+    checked = set(tuple(bits) for bits in filtered_inputs.values())
     nodes_explored = 0
-    
-    # Check for complexity 0 solutions (direct input match)
-    for input_name, input_bits in input_data.items():
-        if input_bits == target_output:
-            if log_file:
-                log_file.write(f"\n*** SOLUTION FOUND (Complexity 0) ***\n")
-                log_file.write(f"Expression: {input_name}\n")
-                log_file.write(f"Complexity: 0\n")
-            return f"{input_name} [complexity=0]"
+    nodes_skipped = 0
     
     for complexity in range(1, max_complexity + 1):
         if log_file:
@@ -312,6 +561,11 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
                 
                 # Only create nodes at current complexity level
                 if total_complexity != complexity:
+                    continue
+                
+                # INTELLIGENT PRUNING: Skip unpromising combinations
+                if not should_try_gate_combination(gate, input_combo, target_output, all_signals, gate_categories):
+                    nodes_skipped += 1
                     continue
                 
                 nodes_explored += 1
@@ -356,11 +610,42 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
                     )
                     new_signals[new_node.name] = new_node
         
+        # INTELLIGENT SIGNAL POOL MANAGEMENT
+        # At higher complexity, limit pool size to most promising signals
+        if complexity >= 2 and len(new_signals) > 100:
+            # Score signals by their potential usefulness
+            scored_signals = []
+            for sig_name, sig_node in new_signals.items():
+                score = 0
+                # Prefer signals with similar bit count to target
+                target_ones = sum(target_output)
+                signal_ones = sum(sig_node.bits)
+                bit_diff = abs(target_ones - signal_ones)
+                score += 50 - bit_diff * 2
+                
+                # Prefer signals with similar transition complexity
+                target_trans = sum(1 for i in range(len(target_output)-1) if target_output[i] != target_output[i+1])
+                signal_trans = sum(1 for i in range(len(sig_node.bits)-1) if sig_node.bits[i] != sig_node.bits[i+1])
+                trans_diff = abs(target_trans - signal_trans)
+                score += 30 - trans_diff * 3
+                
+                # Prefer lower complexity
+                score += (20 - sig_node.complexity)
+                
+                scored_signals.append((score, sig_name, sig_node))
+            
+            # Keep only top signals
+            scored_signals.sort(reverse=True, key=lambda x: x[0])
+            new_signals = {name: node for _, name, node in scored_signals[:100]}
+            
+            if log_file:
+                log_file.write(f"  Signal pool filtered: kept top 100 most promising signals\\n")
+        
         # Add all new signals to global pool for next iteration
         all_signals.update(new_signals)
         
         if log_file:
-            log_file.write(f"\nComplexity {complexity} complete: {nodes_explored} nodes explored, {len(all_signals)} total signals\n")
+            log_file.write(f"\nComplexity {complexity} complete: {nodes_explored} nodes explored, {nodes_skipped} skipped, {len(all_signals)} total signals\n")
     
     return None
 
@@ -369,6 +654,7 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
 def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_complexity=50, log_file=None):
     """
     Channel-based multi-output search optimizing total circuit complexity.
+    Uses intelligent pruning rules to reduce search space.
     
     Args:
         input_data: Dictionary of input signals {name: [bits]}
@@ -380,26 +666,45 @@ def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_comple
     Returns:
         Tuple of (solutions_dict, combined_complexity) or (None, 0)
     """
-    import itertools
-    from collections import deque
+    # Analyze and filter input data
+    if log_file:
+        log_file.write("\n=== INPUT DATA ANALYSIS ===\n")
     
-    # Shared channel pool for all outputs
-    channels = {name: CircuitNode(name, bits, complexity=0) for name, bits in input_data.items()}
-    checked = set(tuple(bits) for bits in input_data.values())
-    nodes_explored = 0
+    filtered_inputs, removed_info = analyze_and_filter_inputs(input_data, target_outputs, log_file)
+    
+    # Check for complexity 0 solutions in exact matches
     solutions = {}
-    solution_nodes = {}  # Track actual CircuitNode objects for solutions
-    
-    # Check complexity 0
-    for inp_name, inp_bits in input_data.items():
-        for tgt_name, tgt_bits in target_outputs.items():
-            if inp_bits == tgt_bits and tgt_name not in solutions:
-                solutions[tgt_name] = f"{inp_name} [complexity=0]"
-                if log_file:
-                    log_file.write(f"Found {tgt_name}: {inp_name} [complexity=0]\n")
+    for out_name, inp_name in removed_info['exact_match'].items():
+        solutions[out_name] = f"{inp_name} [complexity=0]"
+        if log_file:
+            log_file.write(f"\nFound {out_name}: {inp_name} [complexity=0]\n")
     
     if len(solutions) == len(target_outputs):
+        if log_file:
+            log_file.write("\nAll outputs found in inputs!\n")
         return solutions, 0
+    
+    if log_file:
+        log_file.write("================================\n")
+    
+    # Analyze gates for pruning rules
+    gate_categories = analyze_gate_characteristics(gates_list)
+    
+    if log_file:
+        log_file.write("\n=== INTELLIGENT PRUNING ENABLED ===\n")
+        log_file.write(f"Available gates: {len(gates_list)}\n")
+        log_file.write(f"Inverting gates: {[g['name'] for g in gate_categories['inverting']]}\n")
+        log_file.write(f"AND-like gates: {[g['name'] for g in gate_categories['and_like']]}\n")
+        log_file.write(f"OR-like gates: {[g['name'] for g in gate_categories['or_like']]}\n")
+        log_file.write(f"XOR-like gates: {[g['name'] for g in gate_categories['xor_like']]}\n")
+        log_file.write("================================\n")
+    
+    # Shared channel pool for all outputs - use filtered inputs
+    channels = {name: CircuitNode(name, bits, complexity=0) for name, bits in filtered_inputs.items()}
+    checked = set(tuple(bits) for bits in filtered_inputs.values())
+    nodes_explored = 0
+    nodes_skipped = 0
+    solution_nodes = {}  # Track actual CircuitNode objects for solutions
     
     # Channel-based search: build shared signal pool, check all targets each level
     for complexity in range(1, max_complexity + 1):
@@ -417,6 +722,15 @@ def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_comple
                 total_comp = sum(n.complexity for n in unique_nodes.values()) + gate.get('complexity', 1)
                 if total_comp != complexity:
                     continue
+                
+                # INTELLIGENT PRUNING: Check against all remaining targets
+                remaining_targets = {name: bits for name, bits in target_outputs.items() if name not in solutions}
+                if remaining_targets:
+                    # Use first remaining target for pruning decisions
+                    first_target_bits = next(iter(remaining_targets.values()))
+                    if not should_try_gate_combination(gate, combo, first_target_bits, channels, gate_categories):
+                        nodes_skipped += 1
+                        continue
                 
                 nodes_explored += 1
                 output_bits = [gate['func'](*bits) for bits in zip(*[n.bits for n in combo])]
@@ -454,7 +768,10 @@ def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_comple
         
         channels.update(new_channels)
         if log_file:
-            log_file.write(f"\nComplexity {complexity} complete: {nodes_explored} nodes explored, {len(channels)} total signals\n")
+            log_file.write(f"\nComplexity {complexity} complete: {nodes_explored} nodes explored, {nodes_skipped} skipped, {len(channels)} total signals\n")
+            if nodes_explored + nodes_skipped > 0:
+                skip_rate = (nodes_skipped / (nodes_explored + nodes_skipped)) * 100
+                log_file.write(f"Pruning efficiency: {skip_rate:.1f}% of combinations skipped\n")
             remaining = [name for name in target_outputs.keys() if name not in solutions]
             if remaining:
                 log_file.write(f"Remaining targets: {remaining}\n")

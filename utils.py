@@ -1,6 +1,7 @@
 # Logic gate implementations and truth table generation utilities
 import itertools
 from collections import defaultdict
+import time
 
 def NOT(a):
     return 1 ^ (a)
@@ -538,6 +539,11 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
     nodes_explored = 0
     nodes_skipped = 0
     
+    # Timing tracking
+    start_time = time.time()
+    last_report_time = start_time
+    last_report_count = 0
+    
     for complexity in range(1, max_complexity + 1):
         if log_file:
             log_file.write(f"\n--- Searching complexity level {complexity} ---\n")
@@ -569,6 +575,18 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
                     continue
                 
                 nodes_explored += 1
+                
+                # Progress reporting every 1000 nodes
+                if nodes_explored % 1000 == 0:
+                    current_time = time.time()
+                    interval_time = current_time - last_report_time
+                    total_time = current_time - start_time
+                    nodes_in_interval = nodes_explored - last_report_count
+                    
+                    print(f"\r[Progress] Explored: {nodes_explored:,} | Interval: {interval_time:.2f}s ({nodes_in_interval} nodes) | Total: {total_time:.2f}s | Complexity: {complexity}", end='', flush=True)
+                    
+                    last_report_time = current_time
+                    last_report_count = nodes_explored
                 
                 # Compute output
                 input_bits = [node.bits for node in input_combo]
@@ -647,6 +665,10 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
         if log_file:
             log_file.write(f"\nComplexity {complexity} complete: {nodes_explored} nodes explored, {nodes_skipped} skipped, {len(all_signals)} total signals\n")
     
+    # Print newline after progress reporting
+    if nodes_explored >= 1000:
+        print()  # Move to new line after progress output
+    
     return None
 
 
@@ -706,6 +728,11 @@ def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_comple
     nodes_skipped = 0
     solution_nodes = {}  # Track actual CircuitNode objects for solutions
     
+    # Timing tracking
+    start_time = time.time()
+    last_report_time = start_time
+    last_report_count = 0
+    
     # Channel-based search: build shared signal pool, check all targets each level
     for complexity in range(1, max_complexity + 1):
         if log_file:
@@ -733,6 +760,20 @@ def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_comple
                         continue
                 
                 nodes_explored += 1
+                
+                # Progress reporting every 1000 nodes
+                if nodes_explored % 1000 == 0:
+                    current_time = time.time()
+                    interval_time = current_time - last_report_time
+                    total_time = current_time - start_time
+                    nodes_in_interval = nodes_explored - last_report_count
+                    remaining = len(target_outputs) - len(solutions)
+                    
+                    print(f"\r[Progress] Explored: {nodes_explored:,} | Interval: {interval_time:.2f}s ({nodes_in_interval} nodes) | Total: {total_time:.2f}s | Complexity: {complexity} | Remaining: {remaining}", end='', flush=True)
+                    
+                    last_report_time = current_time
+                    last_report_count = nodes_explored
+                
                 output_bits = [gate['func'](*bits) for bits in zip(*[n.bits for n in combo])]
                 bits_tuple = tuple(output_bits)
                 
@@ -788,6 +829,9 @@ def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_comple
             if log_file:
                 log_file.write(f"\nAll outputs found! Nodes explored: {nodes_explored}\n")
                 log_file.write(f"Combined complexity (with shared subcircuits): {total_complexity}\n")
+            # Print newline after progress reporting
+            if nodes_explored >= 1000:
+                print()  # Move to new line after progress output
             return solutions, total_complexity
     
     if solutions:
@@ -799,8 +843,14 @@ def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_comple
         total_complexity = sum(gate_map.get(n.gate_name, 0) for n in all_nodes if n.gate_name)
         if log_file:
             log_file.write(f"\nCombined complexity (with shared subcircuits): {total_complexity}\n")
+        # Print newline after progress reporting
+        if nodes_explored >= 1000:
+            print()  # Move to new line after progress output
         return solutions, total_complexity
     
+    # Print newline after progress reporting
+    if nodes_explored >= 1000:
+        print()  # Move to new line after progress output
     return None, 0
 
 

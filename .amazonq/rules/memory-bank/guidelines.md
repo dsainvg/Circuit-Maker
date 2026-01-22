@@ -50,6 +50,9 @@
 - **Bit manipulation**: Use bit shifts (`1 << num_vars`) for power-of-2 calculations
 - **Combinatorial generation**: Leverage `itertools.combinations_with_replacement` for gate inputs
 - **Complexity tracking**: Track circuit complexity through node hierarchy
+- **Channel-based multi-output**: Optimize for entire circuit by building shared signal pool
+- **Signal pool management**: Maintain global pool of all generated signals across complexity levels
+- **Complete level exploration**: Continue building channels even after finding solutions to enable signal reuse
 
 ### Configuration Management
 - **File-based config**: Use separate files for gates, inputs, and outputs
@@ -89,8 +92,11 @@ def __repr__(self):
 input_data = import_csv_to_inputs_dict(filename)
 gates_list = import_gates_from_file(gates_filename)
 
-# Tree-based circuit search
+# Single output search
 solution = tree_circuit_search(input_data, target_output, gates_list, max_complexity=5)
+
+# Multi-output channel-based search (optimizes for entire circuit)
+solutions = tree_circuit_search_multi(input_data, target_outputs_dict, gates_list, max_complexity=10, log_file=f)
 ```
 
 ### Logging and Output

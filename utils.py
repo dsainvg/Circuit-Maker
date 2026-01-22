@@ -280,6 +280,15 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
     checked = set(tuple(bits) for bits in input_data.values())
     nodes_explored = 0
     
+    # Check for complexity 0 solutions (direct input match)
+    for input_name, input_bits in input_data.items():
+        if input_bits == target_output:
+            if log_file:
+                log_file.write(f"\n*** SOLUTION FOUND (Complexity 0) ***\n")
+                log_file.write(f"Expression: {input_name}\n")
+                log_file.write(f"Complexity: 0\n")
+            return f"{input_name} [complexity=0]"
+    
     for complexity in range(1, max_complexity + 1):
         if log_file:
             log_file.write(f"\n--- Searching complexity level {complexity} ---\n")
@@ -297,8 +306,9 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
             
             # Use combinations_with_replacement (no permutations - gates are commutative)
             for input_combo in itertools.combinations_with_replacement(signal_list, gate['inputs']):
-                # Calculate total complexity: sum of input complexities + gate complexity
-                total_complexity = sum(node.complexity for node in input_combo) + gate_complexity
+                # Calculate total complexity: sum of unique input complexities + gate complexity
+                unique_nodes = {id(node): node for node in input_combo}
+                total_complexity = sum(node.complexity for node in unique_nodes.values()) + gate_complexity
                 
                 # Only create nodes at current complexity level
                 if total_complexity != complexity:
@@ -354,3 +364,133 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
     
     return None
 
+
+
+def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_complexity=50, log_file=None):
+    """
+    Channel-based multi-output search optimizing total circuit complexity.
+    
+    Args:
+        input_data: Dictionary of input signals {name: [bits]}
+        target_outputs: Dictionary of target outputs {name: [bits]}
+        gates_list: List of available gates with complexity
+        max_complexity: Maximum total complexity allowed
+        log_file: File handle for logging
+    
+    Returns:
+        Tuple of (solutions_dict, combined_complexity) or (None, 0)
+    """
+    import itertools
+    from collections import deque
+    
+    # Shared channel pool for all outputs
+    channels = {name: CircuitNode(name, bits, complexity=0) for name, bits in input_data.items()}
+    checked = set(tuple(bits) for bits in input_data.values())
+    nodes_explored = 0
+    solutions = {}
+    solution_nodes = {}  # Track actual CircuitNode objects for solutions
+    
+    # Check complexity 0
+    for inp_name, inp_bits in input_data.items():
+        for tgt_name, tgt_bits in target_outputs.items():
+            if inp_bits == tgt_bits and tgt_name not in solutions:
+                solutions[tgt_name] = f"{inp_name} [complexity=0]"
+                if log_file:
+                    log_file.write(f"Found {tgt_name}: {inp_name} [complexity=0]\n")
+    
+    if len(solutions) == len(target_outputs):
+        return solutions, 0
+    
+    # Channel-based search: build shared signal pool, check all targets each level
+    for complexity in range(1, max_complexity + 1):
+        if log_file:
+            log_file.write(f"\n=== Complexity {complexity} ===\n")
+        
+        new_channels = {}
+        
+        for gate in gates_list:
+            if gate.get('complexity', 1) > complexity:
+                continue
+            
+            for combo in itertools.combinations_with_replacement(list(channels.values()), gate['inputs']):
+                unique_nodes = {id(n): n for n in combo}
+                total_comp = sum(n.complexity for n in unique_nodes.values()) + gate.get('complexity', 1)
+                if total_comp != complexity:
+                    continue
+                
+                nodes_explored += 1
+                output_bits = [gate['func'](*bits) for bits in zip(*[n.bits for n in combo])]
+                bits_tuple = tuple(output_bits)
+                
+                # Build expression for logging
+                input_exprs = [str(node) for node in combo]
+                expression = f"{gate['name']}({', '.join(input_exprs)})"
+                
+                if log_file:
+                    log_file.write(f"  Trying: {expression} [complexity={total_comp}] -> {output_bits}\n")
+                
+                # Check all targets (even if already found - might find better solution)
+                for tgt_name, tgt_bits in target_outputs.items():
+                    if output_bits == tgt_bits and tgt_name not in solutions:
+                        node = CircuitNode(tgt_name, output_bits, gate['name'], list(combo), total_comp)
+                        solutions[tgt_name] = f"{node} [complexity={total_comp}]"
+                        solution_nodes[tgt_name] = node  # Store the actual node
+                        if log_file:
+                            log_file.write(f"\n*** SOLUTION FOUND for {tgt_name} ***\n")
+                            log_file.write(f"Expression: {node}\n")
+                            log_file.write(f"Complexity: {total_comp}\n")
+                
+                # Always add to channel pool (don't stop even if all found)
+                if bits_tuple not in checked:
+                    checked.add(bits_tuple)
+                    new_node = CircuitNode(
+                        f"C{nodes_explored}",
+                        output_bits,
+                        gate['name'],
+                        list(combo),
+                        total_comp
+                    )
+                    new_channels[new_node.name] = new_node
+        
+        channels.update(new_channels)
+        if log_file:
+            log_file.write(f"\nComplexity {complexity} complete: {nodes_explored} nodes explored, {len(channels)} total signals\n")
+            remaining = [name for name in target_outputs.keys() if name not in solutions]
+            if remaining:
+                log_file.write(f"Remaining targets: {remaining}\n")
+        
+        # Only stop if all found AND we've explored this level completely
+        if len(solutions) == len(target_outputs):
+            # Calculate combined complexity considering shared subcircuits
+            all_nodes = set()
+            for node in solution_nodes.values():
+                _collect_unique_nodes(node, all_nodes)
+            # Count gate complexity for each unique gate node
+            gate_map = {g['name']: g.get('complexity', 1) for g in gates_list}
+            total_complexity = sum(gate_map.get(n.gate_name, 0) for n in all_nodes if n.gate_name)
+            if log_file:
+                log_file.write(f"\nAll outputs found! Nodes explored: {nodes_explored}\n")
+                log_file.write(f"Combined complexity (with shared subcircuits): {total_complexity}\n")
+            return solutions, total_complexity
+    
+    if solutions:
+        all_nodes = set()
+        for node in solution_nodes.values():
+            _collect_unique_nodes(node, all_nodes)
+        # Count gate complexity for each unique gate node
+        gate_map = {g['name']: g.get('complexity', 1) for g in gates_list}
+        total_complexity = sum(gate_map.get(n.gate_name, 0) for n in all_nodes if n.gate_name)
+        if log_file:
+            log_file.write(f"\nCombined complexity (with shared subcircuits): {total_complexity}\n")
+        return solutions, total_complexity
+    
+    return None, 0
+
+
+def _collect_unique_nodes(node, visited):
+    """Recursively collect all unique nodes in a circuit tree."""
+    if id(node) in {id(n) for n in visited}:
+        return
+    visited.add(node)
+    for inp in (node.inputs or []):
+        _collect_unique_nodes(inp, visited)

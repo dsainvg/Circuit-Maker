@@ -5,14 +5,14 @@
 ### Root Directory (`/`)
 - **main.py**: Primary application entry point and orchestration logic
 - **utils.py**: Core utility functions for circuit operations and data processing
-- **log_output.txt**: Runtime execution logs and search progress
+- **log_output.log**: Runtime execution logs and search progress
 - **.gitignore**: Version control exclusions (test/, __pycache__/)
 
 ### Test Directory (`/test/`)
 - **test.py**: Unit tests and validation functions
-- **test_data.csv**: Sample input data for circuit synthesis
+- **input.csv**: Sample input data for circuit synthesis
 - **output.csv**: Expected output specifications
-- **gates_list.txt**: Available logic gates configuration
+- **gates_list.csv**: Available logic gates configuration
 - **simple_input.csv / simple_output.csv**: Simplified test cases
 - **or3_table.csv**: Truth table for 3-input OR gate
 - **out.log**: Test execution logs
@@ -32,7 +32,8 @@
 - CSV data import/export functions
 - Gate definition parsing and management
 - Circuit evaluation and truth table generation
-- Tree-based search algorithm implementation
+- Tree-based search algorithm implementation (single and multi-output)
+- CircuitNode class for hierarchical circuit representation
 
 ### Test Framework (test/test.py)
 - Unit test functions for core operations
@@ -50,5 +51,7 @@
 ### Search Strategy
 - Tree-based exploration of circuit space
 - Incremental complexity expansion (1 to max_complexity gates)
-- Early termination on solution discovery
+- Channel-based algorithm for multi-output optimization
+- Complete level exploration before termination (enables signal reuse)
+- Shared signal pool across all target outputs
 - Comprehensive logging for debugging and analysis

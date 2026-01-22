@@ -14,10 +14,9 @@
 
 ### File Formats
 - **CSV**: Input/output data specification format
-- **TXT**: Gate definitions and configuration files
 - **LOG**: Runtime execution and debugging output
 
-## Development Commands
+### Development Commands
 
 ### Running the Application
 ```bash

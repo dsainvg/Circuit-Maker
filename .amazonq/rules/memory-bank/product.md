@@ -5,11 +5,13 @@ Circuit Maker is a Python-based digital circuit synthesis tool that automaticall
 
 ## Key Features
 - **Automated Circuit Discovery**: Uses tree-based search to systematically explore circuit solutions
+- **Channel-Based Multi-Output Optimization**: Builds shared signal pool to optimize entire circuit, not individual outputs
 - **Flexible Gate Library**: Supports custom logic gates loaded from configuration files
 - **CSV Data Integration**: Imports input/output data from CSV files for circuit specification
 - **Comprehensive Logging**: Detailed search process logging with progress tracking
 - **Configurable Search Complexity**: Adjustable maximum circuit complexity limits
 - **Truth Table Validation**: Verifies circuit outputs against expected results
+- **Signal Reuse**: Continues exploration after finding solutions to enable intermediate signal sharing
 
 ## Target Users
 - **Digital Logic Students**: Learning circuit design and Boolean algebra concepts

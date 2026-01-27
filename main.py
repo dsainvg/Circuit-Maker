@@ -3,9 +3,9 @@ from utils import *
 if __name__ == '__main__':
     with open('log_output.log', 'w') as f:
         # Configuration
-        input_filename = 'test/input.csv'
-        output_filename = 'test/output.csv'
-        gates_filename = 'test/gates_list.csv'
+        input_filename = 'I-O/input.csv'
+        output_filename = 'I-O/output.csv'
+        gates_filename = 'I-O/gates_list.csv'
         
         f.write("=== Circuit Maker - BFS Search ===\n\n")
         

@@ -1,3 +1,5 @@
-B1 : XOR2(A1,A2) 
-B2 : XOR2(A5,NAND(A3,A4))
-B3 : OR(A3,A5)
+B0 : A0
+B1 : A1
+B2 : A2
+B3 : A3
+B4 : AND2(A2,A3)

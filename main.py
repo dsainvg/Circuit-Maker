@@ -50,11 +50,29 @@ if __name__ == '__main__':
         f.write("\n" + "="*50 + "\n")
         if solutions:
             f.write("=== SOLUTION FOUND ===\n")
-            for output_name, solution in solutions.items():
+            for output_name in sorted(solutions.keys()):
+                solution = solutions[output_name]
                 f.write(f"{output_name}: {solution}\n")
                 print(f"{output_name}: {solution}")
             f.write(f"\nCombined Complexity: {combined_complexity}\n")
             print(f"\nCombined Complexity: {combined_complexity}")
+            
+            # Extract and print unique gates used
+            gate_usage, gate_instances = extract_gate_usage_from_solutions(solutions, gates_list)
+            if gate_usage:
+                f.write("\n=== GATES USED (SUMMARY) ===\n")
+                print("\n=== GATES USED (SUMMARY) ===")
+                for gate_name in sorted(gate_usage.keys()):
+                    info = gate_usage[gate_name]
+                    f.write(f"{gate_name}: Count={info['count']}, Complexity={info['complexity']}, Total Contribution={info['total_contribution']}\n")
+                    print(f"{gate_name}: Count={info['count']}, Complexity={info['complexity']}, Total Contribution={info['total_contribution']}")
+            
+            if gate_instances:
+                f.write("\n=== GATE INSTANCES (DETAILED) ===\n")
+                print("\n=== GATE INSTANCES (DETAILED) ===")
+                for instance in gate_instances:
+                    f.write(f"{instance['gate_call']} - Complexity: {instance['complexity']}\n")
+                    print(f"{instance['gate_call']} - Complexity: {instance['complexity']}")
         else:
             f.write("=== NO SOLUTION FOUND ===\n")
             f.write("Try increasing max_complexity or adding more gates.\n")

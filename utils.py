@@ -861,3 +861,105 @@ def _collect_unique_nodes(node, visited):
     visited.add(node)
     for inp in (node.inputs or []):
         _collect_unique_nodes(inp, visited)
+
+
+def extract_gate_usage_from_solutions(solutions_str_dict, gates_list):
+    """
+    Extract all unique gates used in solutions and calculate their complexity contributions.
+    
+    Args:
+        solutions_str_dict: Dictionary of {output_name: solution_string}
+        gates_list: List of available gates with complexity information
+        
+    Returns:
+        Tuple of (gate_usage_dict, gate_instances_list)
+        - gate_usage_dict: {gate_name: {'count': int, 'complexity': int, 'total_contribution': int}}
+        - gate_instances_list: List of {'gate_call': str, 'complexity': int} for each gate instance
+    """
+    gate_map = {g['name']: g.get('complexity', 1) for g in gates_list}
+    gate_usage = {}
+    gate_instances = []
+    
+    # Parse solution strings to extract gate names and instances
+    for output_name, solution_str in solutions_str_dict.items():
+        # Extract the expression part (before [complexity=...])
+        expr = solution_str.split('[complexity=')[0].strip()
+        
+        # Extract all gate instances from the expression
+        instances = _extract_gate_instances(expr, gate_map)
+        gate_instances.extend(instances)
+        
+        # Count gate occurrences
+        for gate_name in gate_map.keys():
+            count = expr.count(gate_name + '(')
+            if count > 0:
+                if gate_name not in gate_usage:
+                    gate_usage[gate_name] = {
+                        'count': 0,
+                        'complexity': gate_map[gate_name],
+                        'total_contribution': 0
+                    }
+                gate_usage[gate_name]['count'] += count
+    
+    # Calculate total contribution for each gate
+    for gate_name, info in gate_usage.items():
+        info['total_contribution'] = info['count'] * info['complexity']
+    
+    return gate_usage, gate_instances
+
+
+def _extract_gate_instances(expr, gate_map):
+    """
+    Recursively extract all gate instances from an expression string.
+    
+    Args:
+        expr: Expression string like "NAND2(OR2(A2, A3), NOT(A1))"
+        gate_map: Dictionary of {gate_name: complexity}
+        
+    Returns:
+        List of {'gate_call': str, 'complexity': int} for each gate instance
+    """
+    instances = []
+    i = 0
+    
+    while i < len(expr):
+        # Try to find a gate name
+        found_gate = None
+        for gate_name in gate_map.keys():
+            if expr[i:i+len(gate_name)] == gate_name and i+len(gate_name) < len(expr) and expr[i+len(gate_name)] == '(':
+                found_gate = gate_name
+                break
+        
+        if found_gate:
+            # Find the matching closing parenthesis
+            start = i + len(found_gate)
+            paren_count = 0
+            end = start
+            
+            for j in range(start, len(expr)):
+                if expr[j] == '(':
+                    paren_count += 1
+                elif expr[j] == ')':
+                    paren_count -= 1
+                    if paren_count == 0:
+                        end = j + 1
+                        break
+            
+            # Extract the complete gate call
+            gate_call = expr[i:end]
+            instances.append({
+                'gate_call': gate_call,
+                'complexity': gate_map[found_gate]
+            })
+            
+            # Recursively extract gates from the arguments inside this gate
+            inner_expr = expr[start+1:end-1]  # Get content between parentheses
+            inner_instances = _extract_gate_instances(inner_expr, gate_map)
+            instances.extend(inner_instances)
+            
+            # Continue searching from the end of this gate
+            i = end
+        else:
+            i += 1
+    
+    return instances

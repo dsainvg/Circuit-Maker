@@ -56,7 +56,7 @@ def generate_io_files(circuit_file, output_dir='I-O'):
         
         # Parse input variables from second line
         variables = circuit_lines[1].split()
-        variables = sorted(variables)
+        variables = sorted(variables, reverse=True)
         
         print(f"Input variables: {variables}")
         
@@ -125,9 +125,18 @@ def generate_io_files(circuit_file, output_dir='I-O'):
         
         all_circuits.append(circuit_expr)
     
-    # Get sorted list of all unique variables
-    variables = sorted(list(all_variables))
+    # Get sorted list of all unique variables in reverse lexicographical order
+    variables = sorted(list(all_variables), reverse=True)
     print(f"\nInput variables: {variables}")
+    
+    # Sort output names in reverse lexicographical order for consistent column ordering
+    sorted_output_indices = sorted(range(len(output_names)), key=lambda i: output_names[i], reverse=True)
+    sorted_output_names = [output_names[i] for i in sorted_output_indices]
+    sorted_circuits = [all_circuits[i] for i in sorted_output_indices]
+    
+    # Replace with sorted versions
+    output_names = sorted_output_names
+    all_circuits = sorted_circuits
     
     # Generate all possible input combinations
     num_vars = len(variables)

@@ -877,8 +877,8 @@ def extract_gate_usage_from_solutions(solutions_str_dict, gates_list):
         - gate_instances_list: List of {'gate_call': str, 'complexity': int} for each gate instance
     """
     gate_map = {g['name']: g.get('complexity', 1) for g in gates_list}
-    gate_usage = {}
     gate_instances = []
+    unique_gate_calls = set()
     
     # Parse solution strings to extract gate names and instances
     for output_name, solution_str in solutions_str_dict.items():
@@ -888,18 +888,25 @@ def extract_gate_usage_from_solutions(solutions_str_dict, gates_list):
         # Extract all gate instances from the expression
         instances = _extract_gate_instances(expr, gate_map)
         gate_instances.extend(instances)
-        
-        # Count gate occurrences
+    
+    # Deduplicate gate instances
+    for instance in gate_instances:
+        unique_gate_calls.add(instance['gate_call'])
+    
+    # Count unique gates by gate type
+    gate_usage = {}
+    for gate_call in unique_gate_calls:
+        # Determine which gate type this is
         for gate_name in gate_map.keys():
-            count = expr.count(gate_name + '(')
-            if count > 0:
+            if gate_call.startswith(gate_name + '('):
                 if gate_name not in gate_usage:
                     gate_usage[gate_name] = {
                         'count': 0,
                         'complexity': gate_map[gate_name],
                         'total_contribution': 0
                     }
-                gate_usage[gate_name]['count'] += count
+                gate_usage[gate_name]['count'] += 1
+                break
     
     # Calculate total contribution for each gate
     for gate_name, info in gate_usage.items():

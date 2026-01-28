@@ -68,9 +68,17 @@ if __name__ == '__main__':
                     print(f"{gate_name}: Count={info['count']}, Complexity={info['complexity']}, Total Contribution={info['total_contribution']}")
             
             if gate_instances:
+                # Deduplicate gate instances - keep unique ones only
+                unique_instances = {}
+                for instance in gate_instances:
+                    gate_call = instance['gate_call']
+                    if gate_call not in unique_instances:
+                        unique_instances[gate_call] = instance
+                
                 f.write("\n=== GATE INSTANCES (DETAILED) ===\n")
                 print("\n=== GATE INSTANCES (DETAILED) ===")
-                for instance in gate_instances:
+                for gate_call in sorted(unique_instances.keys()):
+                    instance = unique_instances[gate_call]
                     f.write(f"{instance['gate_call']} - Complexity: {instance['complexity']}\n")
                     print(f"{instance['gate_call']} - Complexity: {instance['complexity']}")
         else:

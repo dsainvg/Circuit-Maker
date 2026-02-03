@@ -107,9 +107,14 @@ def generate_io_files(circuit_file, output_dir='I-O'):
         # Extract circuit expression (remove complexity annotation if present)
         circuit_expr = re.sub(r'\s*\[complexity=\d+\]', '', circuit_line)
         
-        # Check if line has format "OutputName : Expression"
+        # Check if line has format "OutputName : Expression" or "OutputName = Expression"
         if ':' in circuit_expr:
             parts = circuit_expr.split(':', 1)
+            output_name = parts[0].strip()
+            circuit_expr = parts[1].strip()
+            output_names.append(output_name)
+        elif '=' in circuit_expr:
+            parts = circuit_expr.split('=', 1)
             output_name = parts[0].strip()
             circuit_expr = parts[1].strip()
             output_names.append(output_name)
@@ -144,7 +149,7 @@ def generate_io_files(circuit_file, output_dir='I-O'):
     
     print(f"Generating {num_rows} input combinations...")
     
-    # Create input combinaoutput_names[i]
+    # Create input combinations
     input_data = []
     output_data = []
     

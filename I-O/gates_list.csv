@@ -1,4 +1,2 @@
 gate_name,num_inputs,complexity
-NOT,1,1
-NAND2,2,2
-NOR2,2,2
+NAND2,2,1

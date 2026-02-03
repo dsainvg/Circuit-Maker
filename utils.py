@@ -487,7 +487,7 @@ class CircuitNode:
         return self.name
 
 
-def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10, log_file=None):
+def tree_circuit_search(input_data, target_output, gates_list, max_complexity=1000, log_file=None):
     """
     Search for circuit using tree structure with complexity-based depth.
     Uses intelligent pruning rules to reduce search space.
@@ -673,7 +673,7 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
 
 
 
-def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_complexity=50, log_file=None):
+def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_complexity=1000, log_file=None):
     """
     Channel-based multi-output search optimizing total circuit complexity.
     Uses intelligent pruning rules to reduce search space.

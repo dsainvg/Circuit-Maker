@@ -45,7 +45,7 @@ if __name__ == '__main__':
         f.write(f"Searching for {len(target_outputs)} output(s)\n")
         f.write("="*50 + "\n")
         
-        solutions, combined_complexity = tree_circuit_search_multi(input_data, target_outputs, gates_list, max_complexity=10, log_file=f)
+        solutions, combined_complexity = tree_circuit_search_multi(input_data, target_outputs, gates_list, max_complexity=1000, log_file=f)
         
         f.write("\n" + "="*50 + "\n")
         if solutions:

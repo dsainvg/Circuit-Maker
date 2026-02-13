@@ -1,2 +1,1 @@
-O = OR4(A0,A1,A2,A3)
-B = OR2(A4,A5)
+O = OR2(AND(NOT(S),A),AND(S,B))

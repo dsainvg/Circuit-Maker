@@ -561,9 +561,15 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
             
             # Use combinations_with_replacement (no permutations - gates are commutative)
             for input_combo in itertools.combinations_with_replacement(signal_list, gate['inputs']):
-                # Calculate total complexity: sum of unique input complexities + gate complexity
-                unique_nodes = {id(node): node for node in input_combo}
-                total_complexity = sum(node.complexity for node in unique_nodes.values()) + gate_complexity
+                # Calculate total complexity based on mode
+                if use_parallel_complexity:
+                    # Parallel: max depth of inputs + gate complexity
+                    max_input_depth = max((node.complexity for node in input_combo), default=0)
+                    total_complexity = max_input_depth + gate_complexity
+                else:
+                    # Serial: sum of unique input complexities + gate complexity
+                    unique_nodes = {id(node): node for node in input_combo}
+                    total_complexity = sum(node.complexity for node in unique_nodes.values()) + gate_complexity
                 
                 # Only create nodes at current complexity level
                 if total_complexity != complexity:
@@ -673,7 +679,7 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
 
 
 
-def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_complexity=1000, log_file=None):
+def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_complexity=1000, use_parallel_complexity=True, log_file=None):
     """
     Channel-based multi-output search optimizing total circuit complexity.
     Uses intelligent pruning rules to reduce search space.
@@ -683,6 +689,7 @@ def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_comple
         target_outputs: Dictionary of target outputs {name: [bits]}
         gates_list: List of available gates with complexity
         max_complexity: Maximum total complexity allowed
+        use_parallel_complexity: True = max depth (parallel), False = sum (serial)
         log_file: File handle for logging
     
     Returns:
@@ -745,8 +752,16 @@ def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_comple
                 continue
             
             for combo in itertools.combinations_with_replacement(list(channels.values()), gate['inputs']):
-                unique_nodes = {id(n): n for n in combo}
-                total_comp = sum(n.complexity for n in unique_nodes.values()) + gate.get('complexity', 1)
+                # Calculate total complexity based on mode
+                if use_parallel_complexity:
+                    # Parallel: max depth of inputs + gate complexity
+                    max_input_depth = max((n.complexity for n in combo), default=0)
+                    total_comp = max_input_depth + gate.get('complexity', 1)
+                else:
+                    # Serial: sum of unique input complexities + gate complexity
+                    unique_nodes = {id(n): n for n in combo}
+                    total_comp = sum(n.complexity for n in unique_nodes.values()) + gate.get('complexity', 1)
+                
                 if total_comp != complexity:
                     continue
                 
@@ -819,30 +834,41 @@ def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_comple
         
         # Only stop if all found AND we've explored this level completely
         if len(solutions) == len(target_outputs):
-            # Calculate combined complexity considering shared subcircuits
-            all_nodes = set()
-            for node in solution_nodes.values():
-                _collect_unique_nodes(node, all_nodes)
-            # Count gate complexity for each unique gate node
-            gate_map = {g['name']: g.get('complexity', 1) for g in gates_list}
-            total_complexity = sum(gate_map.get(n.gate_name, 0) for n in all_nodes if n.gate_name)
+            # Calculate combined complexity
+            if use_parallel_complexity:
+                # Parallel: max depth across all outputs
+                total_complexity = max((_calculate_node_depth(node) for node in solution_nodes.values()), default=0)
+            else:
+                # Serial: sum of unique gate complexities
+                all_nodes = set()
+                for node in solution_nodes.values():
+                    _collect_unique_nodes(node, all_nodes)
+                gate_map = {g['name']: g.get('complexity', 1) for g in gates_list}
+                total_complexity = sum(gate_map.get(n.gate_name, 0) for n in all_nodes if n.gate_name)
             if log_file:
                 log_file.write(f"\nAll outputs found! Nodes explored: {nodes_explored}\n")
-                log_file.write(f"Combined complexity (with shared subcircuits): {total_complexity}\n")
+                complexity_type = "max depth (parallel)" if use_parallel_complexity else "sum (serial)"
+                log_file.write(f"Combined complexity ({complexity_type}): {total_complexity}\n")
             # Print newline after progress reporting
             if nodes_explored >= 1000:
                 print()  # Move to new line after progress output
             return solutions, total_complexity
     
     if solutions:
-        all_nodes = set()
-        for node in solution_nodes.values():
-            _collect_unique_nodes(node, all_nodes)
-        # Count gate complexity for each unique gate node
-        gate_map = {g['name']: g.get('complexity', 1) for g in gates_list}
-        total_complexity = sum(gate_map.get(n.gate_name, 0) for n in all_nodes if n.gate_name)
+        # Calculate combined complexity
+        if use_parallel_complexity:
+            # Parallel: max depth across all outputs
+            total_complexity = max((_calculate_node_depth(node) for node in solution_nodes.values()), default=0)
+        else:
+            # Serial: sum of unique gate complexities
+            all_nodes = set()
+            for node in solution_nodes.values():
+                _collect_unique_nodes(node, all_nodes)
+            gate_map = {g['name']: g.get('complexity', 1) for g in gates_list}
+            total_complexity = sum(gate_map.get(n.gate_name, 0) for n in all_nodes if n.gate_name)
         if log_file:
-            log_file.write(f"\nCombined complexity (with shared subcircuits): {total_complexity}\n")
+            complexity_type = "max depth (parallel)" if use_parallel_complexity else "sum (serial)"
+            log_file.write(f"\nCombined complexity ({complexity_type}): {total_complexity}\n")
         # Print newline after progress reporting
         if nodes_explored >= 1000:
             print()  # Move to new line after progress output
@@ -852,6 +878,16 @@ def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_comple
     if nodes_explored >= 1000:
         print()  # Move to new line after progress output
     return None, 0
+
+
+def _calculate_node_depth(node):
+    """Calculate maximum depth (parallel complexity) of a circuit node."""
+    if not node.gate_name:
+        return 0
+    if not node.inputs:
+        return node.complexity
+    max_input_depth = max((_calculate_node_depth(inp) for inp in node.inputs), default=0)
+    return max_input_depth + node.complexity
 
 
 def _collect_unique_nodes(node, visited):

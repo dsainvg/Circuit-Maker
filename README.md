@@ -219,6 +219,14 @@ This will:
 4. Search for circuit implementations using BFS
 5. Output found solutions with complexity ratings
 
+### Don't-Care Outputs
+
+`main.py` accepts don't-care cells in `I-O/output.csv` for target outputs.
+
+- Supported markers: `X`, `x`, `?`, `-`, `DC`
+- Only output files support don't-care markers; `input.csv` must still contain `0` or `1`
+- A candidate circuit matches when all specified `0/1` rows match, and don't-care rows are ignored
+
 ## Troubleshooting
 
 ### Error: "name 'X' is not defined"

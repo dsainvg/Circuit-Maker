@@ -1,1 +1,9 @@
-O = OR2(AND(NOT(S),A),AND(S,B))
+O1 = A1
+O2 = A2
+O3 = A3
+J1 = A1
+K1 = A3
+J2 = A2
+K2 = A1
+J3 = A3
+K3 = A3

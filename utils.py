@@ -99,6 +99,8 @@ GATE_MAP = {
     'NOR4': (NOR4, 4)
 }
 
+DONT_CARE_TOKENS = {'X', '?', '-', 'DC'}
+
 
 def import_gates_from_file(filename):
     """
@@ -192,7 +194,7 @@ def analyze_and_filter_inputs(input_data, target_outputs, log_file=None):
         
         # Check if it exactly matches any output (still keep it, but note it)
         for out_name, out_bits in target_outputs.items():
-            if inp_bits == out_bits:
+            if out_name not in removed['exact_match'] and bits_match_target(inp_bits, out_bits):
                 removed['exact_match'][out_name] = inp_name
                 if log_file:
                     log_file.write(f"  Note: {inp_name} exactly matches output {out_name}\n")
@@ -434,16 +436,60 @@ def export_truth_table_to_csv(truth_table, filename):
             f.write(','.join(str(row[key]) for key in keys) + '\n')
 
 
-def import_csv_to_inputs_dict(filename):
+def _parse_csv_value(raw_value, allow_dont_care=False):
+    """Parse a CSV cell as 0/1, optionally allowing don't-care markers."""
+    value = raw_value.strip()
+    if allow_dont_care and value.upper() in DONT_CARE_TOKENS:
+        return None
+    return int(value)
+
+
+def bits_match_target(actual_bits, target_bits):
+    """
+    Return True when actual bits match target bits, treating None as don't care.
+    """
+    if len(actual_bits) != len(target_bits):
+        return False
+    return all(target_bit is None or actual_bit == target_bit
+               for actual_bit, target_bit in zip(actual_bits, target_bits))
+
+
+def _count_transitions(bits):
+    """Count edge transitions in a bit array."""
+    return sum(1 for i in range(len(bits) - 1) if bits[i] != bits[i + 1])
+
+
+def score_signal_against_target(signal_bits, target_bits):
+    """
+    Score a signal against a target, ignoring don't-care rows.
+    Higher scores indicate a closer match.
+    """
+    specified_indices = [i for i, bit in enumerate(target_bits) if bit is not None]
+    if not specified_indices:
+        return 0
+
+    specified_signal = [signal_bits[i] for i in specified_indices]
+    specified_target = [target_bits[i] for i in specified_indices]
+    matches = sum(1 for signal_bit, target_bit in zip(specified_signal, specified_target)
+                  if signal_bit == target_bit)
+
+    score = matches * 4
+    score += 50 - abs(sum(specified_target) - sum(specified_signal)) * 2
+    score += 30 - abs(_count_transitions(specified_target) - _count_transitions(specified_signal)) * 3
+    return score
+
+
+def import_csv_to_inputs_dict(filename, allow_dont_care=False):
     """
     Import CSV file and convert to inputs dictionary format.
     
     Args:
         filename: Path to CSV file
+        allow_dont_care: When True, accepts X, x, ?, -, or DC as don't-care cells
     
     Returns:
         Dictionary with variable names as keys and arrays of bits as values
-        Example: {'A': [0, 0, 1, 1], 'B': [0, 1, 0, 1], 'Output': [0, 1, 0, 1]}
+        Example: {'A': [0, 0, 1, 1], 'B': [0, 1, 0, 1], 'Output': [0, 1, None, 1]}
     """
     inputs_dict = {}
     
@@ -465,7 +511,7 @@ def import_csv_to_inputs_dict(filename):
             if line.strip():
                 values = line.strip().split(',')
                 for i, header in enumerate(headers):
-                    inputs_dict[header].append(int(values[i]))
+                    inputs_dict[header].append(_parse_csv_value(values[i], allow_dont_care))
     
     return inputs_dict
 
@@ -606,7 +652,7 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
                     log_file.write(f"  Trying: {expression} [complexity={total_complexity}] -> {output_bits}\n")
                 
                 # Check if solution
-                if output_bits == target_output:
+                if bits_match_target(output_bits, target_output):
                     solution_node = CircuitNode(
                         f"OUT_{nodes_explored}",
                         output_bits,
@@ -640,20 +686,7 @@ def tree_circuit_search(input_data, target_output, gates_list, max_complexity=10
             # Score signals by their potential usefulness
             scored_signals = []
             for sig_name, sig_node in new_signals.items():
-                score = 0
-                # Prefer signals with similar bit count to target
-                target_ones = sum(target_output)
-                signal_ones = sum(sig_node.bits)
-                bit_diff = abs(target_ones - signal_ones)
-                score += 50 - bit_diff * 2
-                
-                # Prefer signals with similar transition complexity
-                target_trans = sum(1 for i in range(len(target_output)-1) if target_output[i] != target_output[i+1])
-                signal_trans = sum(1 for i in range(len(sig_node.bits)-1) if sig_node.bits[i] != sig_node.bits[i+1])
-                trans_diff = abs(target_trans - signal_trans)
-                score += 30 - trans_diff * 3
-                
-                # Prefer lower complexity
+                score = score_signal_against_target(sig_node.bits, target_output)
                 score += (20 - sig_node.complexity)
                 
                 scored_signals.append((score, sig_name, sig_node))
@@ -801,7 +834,7 @@ def tree_circuit_search_multi(input_data, target_outputs, gates_list, max_comple
                 
                 # Check all targets (even if already found - might find better solution)
                 for tgt_name, tgt_bits in target_outputs.items():
-                    if output_bits == tgt_bits and tgt_name not in solutions:
+                    if bits_match_target(output_bits, tgt_bits) and tgt_name not in solutions:
                         node = CircuitNode(tgt_name, output_bits, gate['name'], list(combo), total_comp)
                         solutions[tgt_name] = f"{node} [complexity={total_comp}]"
                         solution_nodes[tgt_name] = node  # Store the actual node

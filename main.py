@@ -20,7 +20,7 @@ if __name__ == '__main__':
         
         # Load output data (target)
         f.write(f"\nLoading target output from {output_filename}...\n")
-        output_data = import_csv_to_inputs_dict(output_filename)
+        output_data = import_csv_to_inputs_dict(output_filename, allow_dont_care=True)
         target_outputs = {key: val for key, val in output_data.items()}
         f.write(f"Target outputs: {list(target_outputs.keys())}\n")
         for key, val in target_outputs.items():
